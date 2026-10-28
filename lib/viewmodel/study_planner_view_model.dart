@@ -42,7 +42,12 @@ class StudyPlannerViewModel extends ChangeNotifier {
 
   List<int> get subjectHours => List.unmodifiable(_subjectHours);
   int get weeklyHours => _weeklyHours;
-  int get allocatedHours => _subjectHours.fold(0, (sum, hours) => sum + hours);
+  int get allocatedHours => database == null
+      ? _subjectHours.fold(0, (sum, hours) => sum + hours)
+      : database!.selectedSubjects.fold(
+          0,
+          (sum, s) => sum + database!.subjectHoursFor(s, legacy: _subjectHours),
+        );
   int get remainingHours => weeklyHours - allocatedHours;
 
   int maxHoursForSubject(int index) => remainingHours + _subjectHours[index];

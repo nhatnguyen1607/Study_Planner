@@ -2,120 +2,312 @@ part of 'database_frame.dart';
 
 extension _ProfileFrames on _DatabaseFrameState {
   List<Widget> profileBody() {
-    final profile = UserProfileScope.maybeOf(context)?.profile;
-    final preferences = data.find('settings', 'preferences');
-    final notifications = data.find('settings', 'notifications');
+    final profile = UserProfileScope.maybeOf(context)?.profile,
+        preferences = data.find('settings', 'preferences'),
+        notifications = data.find('settings', 'notifications');
     switch (screen) {
       case D.pr01:
         return [
-          Center(child: avatar()),
+          Center(
+            child: Container(
+              width: 118,
+              height: 118,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: pale,
+                border: Border.all(color: Colors.white, width: 5),
+              ),
+              child: const StudyMascot(size: 104),
+            ),
+          ),
           T(
             profile?.displayName ?? 'Tài khoản của bạn',
-            size: 24,
+            size: 23,
             center: true,
             weight: FontWeight.w700,
           ),
-          T(profile?.email ?? '', center: true, color: muted),
-          if (profile?.bio != null) T(profile!.bio!, center: true),
-          plannerStats([
-            (Icons.local_fire_department, '${data.streak}', 'Chuỗi ngày'),
-            (Icons.school, '${data.completedSessions.length}', 'Buổi đã học'),
-            (
-              Icons.flag,
-              '${data.items('goals').where((g) => goalPercent(g) >= 100).length}',
-              'Mục tiêu xong',
+          T(
+            [
+              profile?.studyRole,
+              profile?.major,
+            ].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+            center: true,
+            color: muted,
+            size: 12,
+          ),
+          KCard([
+            KRow([
+              Expanded(
+                child: T(
+                  profile?.bio?.isNotEmpty == true
+                      ? profile!.bio!
+                      : 'Học hôm nay, để trở thành phiên bản tốt hơn ngày mai.',
+                  size: 13,
+                  color: muted,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Chỉnh sửa hồ sơ',
+                onPressed: () => go(D.pr02),
+                icon: const Icon(Icons.edit_outlined, size: 19, color: dark),
+              ),
+            ], gap: 8),
+          ], padding: 12),
+          KRow([
+            Expanded(
+              child: profileStat(
+                Icons.local_fire_department_outlined,
+                '${data.streak}',
+                'Ngày học liên tục',
+              ),
             ),
-          ]),
-          for (final a in [
-            ('Chỉnh sửa hồ sơ', D.pr02, Icons.person_outline),
-            ('Mục tiêu học tập', D.go01, Icons.track_changes),
-            ('Huy hiệu thành tích', D.an08, Icons.military_tech_outlined),
-            ('Cài đặt ứng dụng', D.pr03, Icons.settings_outlined),
-          ])
-            row(a.$1, '', a.$3, () => go(a.$2)),
+            Expanded(
+              child: profileStat(
+                Icons.school_outlined,
+                '${data.completedSessions.length}',
+                'Buổi đã học',
+              ),
+            ),
+            Expanded(
+              child: profileStat(
+                Icons.emoji_events_outlined,
+                '${data.items('goals').where((g) => goalPercent(g) >= 100).length}',
+                'Mục tiêu hoàn thành',
+              ),
+            ),
+          ], gap: 9),
+          heading(
+            'Thành tựu gần đây',
+            action: 'Xem tất cả ›',
+            tap: () => go(D.an08),
+          ),
+          KCard([
+            KRow([
+              const Icon(
+                Icons.workspace_premium_outlined,
+                size: 36,
+                color: green,
+              ),
+              Expanded(
+                child: KColumn([
+                  bold('Kiên trì mỗi ngày', 14),
+                  T(
+                    '${data.streak} ngày duy trì việc học',
+                    size: 12,
+                    color: muted,
+                  ),
+                ]),
+              ),
+              const Icon(Icons.chevron_right, color: muted),
+            ], gap: 14),
+          ], onTap: () => go(D.an07)),
+          KCard([
+            settingsRow(
+              Icons.person_outline,
+              'Hồ sơ cá nhân',
+              tap: () => go(D.pr02),
+            ),
+            settingsRow(
+              Icons.track_changes,
+              'Mục tiêu học tập',
+              tap: () => go(D.go01),
+            ),
+            settingsRow(
+              Icons.settings_outlined,
+              'Cài đặt ứng dụng',
+              tap: () => go(D.pr03),
+            ),
+          ], padding: 5),
         ];
       case D.pr04:
         return [
-          const T(
-            'Tùy chọn thông báo được lưu riêng theo tài khoản. Gửi thông báo đẩy cần triển khai thêm dịch vụ nhắc lịch.',
-            color: muted,
-          ),
-          for (final entry in {
-            'enabled': 'Bật thông báo',
-            'studyReminders': 'Nhắc học tập',
-            'goalUpdates': 'Cập nhật mục tiêu',
-            'deadlineReminders': 'Nhắc thời hạn',
-            'aiSuggestions': 'Gợi ý AI',
-          }.entries)
-            KCard([
+          KCard([
+            Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(
+                  Icons.notifications_active_outlined,
+                  color: green,
+                ),
+                title: const Text(
+                  'Nhận thông báo',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Lưu lựa chọn cho tài khoản của bạn',
+                  style: TextStyle(fontSize: 12),
+                ),
+                value: notifications?.data['enabled'] != false,
+                onChanged: data.busy
+                    ? null
+                    : (v) => data.setting('notifications', {'enabled': v}),
+              ),
+            ),
+          ]),
+          heading('Thông báo học tập'),
+          KCard([
+            for (final entry in {
+              'studyReminders': (
+                'Nhắc nhở học tập',
+                'Nhắc theo kế hoạch đã đặt',
+                Icons.notifications_outlined,
+              ),
+              'goalUpdates': (
+                'Thông báo mục tiêu',
+                'Theo dõi các bước tiến của bạn',
+                Icons.track_changes,
+              ),
+              'deadlineReminders': (
+                'Nhắc thời hạn',
+                'Ghi nhớ những mốc quan trọng',
+                Icons.calendar_month_outlined,
+              ),
+            }.entries)
               Material(
                 type: MaterialType.transparency,
                 child: SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  secondary: const Icon(
-                    Icons.notifications_outlined,
-                    color: green,
+                  secondary: Icon(entry.value.$3, color: muted, size: 22),
+                  title: Text(
+                    entry.value.$1,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  title: Text(entry.value),
+                  subtitle: Text(
+                    entry.value.$2,
+                    style: const TextStyle(fontSize: 11),
+                  ),
                   value: notifications?.data[entry.key] != false,
                   onChanged: data.busy
                       ? null
                       : (v) => data.setting('notifications', {entry.key: v}),
                 ),
               ),
-            ]),
+          ]),
+          heading('Thông báo khác'),
+          KCard([
+            Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const StudyMascot(pose: 'sprout_pencil', size: 40),
+                title: const Text(
+                  'Gợi ý học tập',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Lựa chọn gợi ý phù hợp với bạn',
+                  style: TextStyle(fontSize: 11),
+                ),
+                value: notifications?.data['aiSuggestions'] != false,
+                onChanged: data.busy
+                    ? null
+                    : (v) =>
+                          data.setting('notifications', {'aiSuggestions': v}),
+              ),
+            ),
+          ]),
         ];
       case D.pr05:
         return [
           heading('Chế độ giao diện'),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final e in {
-                'light': 'Sáng',
-                'dark': 'Tối',
-                'system': 'Tự động',
-              }.entries)
-                ChoiceChip(
-                  avatar: Icon(
-                    e.key == 'dark'
-                        ? Icons.dark_mode_outlined
-                        : Icons.light_mode_outlined,
+          KRow([
+            for (final item in [
+              ('light', 'Sáng', Icons.light_mode_outlined),
+              ('dark', 'Tối', Icons.dark_mode_outlined),
+              ('system', 'Tự động', Icons.brightness_auto_outlined),
+            ])
+              Expanded(
+                child: HoverAction(
+                  onTap: data.busy
+                      ? null
+                      : () =>
+                            data.setting('preferences', {'themeMode': item.$1}),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color:
+                          (preferences?.text('themeMode', 'system') ??
+                                  'system') ==
+                              item.$1
+                          ? light
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color:
+                            (preferences?.text('themeMode', 'system') ??
+                                    'system') ==
+                                item.$1
+                            ? green
+                            : StudyColors.border,
+                      ),
+                    ),
+                    child: KColumn([
+                      Icon(item.$3, size: 26, color: dark),
+                      gap(8),
+                      T(item.$2, center: true, size: 12),
+                    ], center: true),
                   ),
-                  label: Text(e.value),
-                  selected:
-                      (preferences?.text('themeMode', 'system') ?? 'system') ==
-                      e.key,
-                  onSelected: data.busy
-                      ? null
-                      : (_) =>
-                            data.setting('preferences', {'themeMode': e.key}),
                 ),
-            ],
-          ),
-          heading('Cỡ chữ'),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final e in {
-                'small': 'Nhỏ',
-                'medium': 'Vừa',
-                'large': 'Lớn',
-              }.entries)
-                ChoiceChip(
-                  label: Text(e.value),
-                  selected:
-                      (preferences?.text('fontSize', 'medium') ?? 'medium') ==
-                      e.key,
-                  onSelected: data.busy
-                      ? null
-                      : (_) => data.setting('preferences', {'fontSize': e.key}),
+              ),
+          ], gap: 10),
+          heading('Màu chủ đạo'),
+          KCard([
+            KRow([
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: green,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: pale, width: 4),
                 ),
-            ],
+              ),
+              const Expanded(child: T('Xanh lá', weight: FontWeight.w600)),
+              const Icon(Icons.check_circle, color: green),
+            ], gap: 12),
+          ]),
+          heading('Kiểu hiển thị'),
+          KCard([
+            const T('Cỡ chữ', size: 13, weight: FontWeight.w600),
+            gap(12),
+            segments(
+              ['Nhỏ', 'Trung bình', 'Lớn'],
+              [
+                'small',
+                'medium',
+                'large',
+              ].indexOf(preferences?.text('fontSize', 'medium') ?? 'medium'),
+              (i) => data.setting('preferences', {
+                'fontSize': ['small', 'medium', 'large'][i],
+              }),
+            ),
+          ]),
+          heading('Hình nền ứng dụng'),
+          Container(
+            height: 156,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: green),
+              image: const DecorationImage(
+                image: AssetImage('assets/images/study_planner_bg.png'),
+                fit: BoxFit.cover,
+              ),
+            ),
+            child: const Align(
+              alignment: Alignment.bottomRight,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.check_circle, color: green, size: 27),
+              ),
+            ),
           ),
-          const T(
-            'Phông chữ, nền và màu chủ đạo tiếp tục dùng bộ giao diện Study Planner.',
-            color: muted,
+          const Align(
+            alignment: Alignment.centerRight,
+            child: StudyMascot(pose: 'sprout_watering', size: 86),
           ),
         ];
       default:

@@ -163,7 +163,7 @@ class KHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 24,
+                fontSize: 20,
                 height: 1.25,
                 letterSpacing: -.2,
                 fontWeight: FontWeight.w600,
@@ -768,12 +768,29 @@ Widget avatar({double size = 112, double iconSize = 92}) => Center(
   ),
 );
 Widget profileStat(IconData icon, String value, String label) => KCard([
-  KColumn([
-    iconBox(icon, size: 34, radius: 11, iconSize: 20),
-    bold(value, 18),
-    T(label, size: 10, color: muted),
-  ], center: true),
-]);
+  KColumn(
+    [
+      iconBox(icon, size: 34, radius: 11, iconSize: 20),
+      bold(value, 18),
+      Builder(
+        builder: (context) => SizedBox(
+          height: MediaQuery.textScalerOf(context).scale(10) * 2.8,
+          child: Center(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, height: 1.4, color: muted),
+            ),
+          ),
+        ),
+      ),
+    ],
+    center: true,
+    gap: 6,
+  ),
+], padding: 12);
 Widget plannerStats(List<(IconData, String, String)> values) => KRow([
   for (final v in values)
     Expanded(
@@ -830,7 +847,7 @@ Widget plannerDetail(
     child: KRow([
       Icon(icon, size: 21, color: dark),
       Expanded(child: T(label, size: 13, color: muted)),
-      T(value, size: 13, weight: FontWeight.w600),
+      Flexible(child: T(value, size: 13, weight: FontWeight.w600)),
       if (tap != null) const Icon(Icons.chevron_right, size: 18, color: muted),
     ], gap: 12),
   ),
@@ -942,7 +959,7 @@ Widget fieldBox(String hint, {double height = 64}) => Padding(
   ),
 );
 Widget fieldLabel(String title, {bool required = false}) => KRow([
-  T(title, size: 16, weight: FontWeight.w600),
+  Flexible(child: T(title, size: 16, weight: FontWeight.w600)),
   if (required)
     const T(' *', size: 16, color: Color(0xFFD45555), weight: FontWeight.w600),
 ]);

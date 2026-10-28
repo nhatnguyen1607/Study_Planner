@@ -1,3 +1,5 @@
+import '../model/study_subject.dart';
+
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -48,6 +50,18 @@ class StudyDataViewModel extends ChangeNotifier {
                     }
                   }
                   _draftLoaded = true;
+                }
+                // Keep the catalog live without overwriting unsaved wizard fields.
+                if (kind == 'settings' && _draftLoaded) {
+                  final editor = items
+                      .where((r) => r.id == 'editor')
+                      .firstOrNull;
+                  final values = editor?.data['values'];
+                  if (values is Map && values['customSubjects'] is List) {
+                    drafts['customSubjects'] = List<dynamic>.of(
+                      values['customSubjects'] as List,
+                    );
+                  }
                 }
                 _loaded.add(kind);
                 if (ready) {
@@ -106,6 +120,138 @@ class StudyDataViewModel extends ChangeNotifier {
   Future<void> prepareSignOut() async {
     if (_pending != null) await _pending!.future;
     if (error != null) throw DataFailure('unsaved', error!);
+  }
+
+  List<StudySubject> get subjects {
+    final custom = (drafts['customSubjects'] as List? ?? [])
+        .whereType<Map>()
+        .map((v) => StudySubject.fromJson(Map<String, dynamic>.from(v)));
+    return [...StudySubject.presets, ...custom];
+  }
+
+  List<StudySubject> get selectedSubjects {
+    final names =
+        (drafts['courses'] as List?)?.whereType<String>().toSet() ??
+        StudySubject.presets.take(3).map((s) => s.name).toSet();
+    return subjects.where((s) => names.contains(s.name)).toList();
+  }
+
+  int subjectHoursFor(
+    StudySubject subject, {
+    List<int> legacy = const [3, 2, 4],
+  }) {
+    final saved = (drafts['courseHours'] as Map?)?[subject.id];
+    if (saved is int && saved >= 1 && saved <= 168) return saved;
+    final index = StudySubject.presets.indexWhere((s) => s.id == subject.id);
+    return index >= 0 && index < legacy.length ? legacy[index] : 1;
+  }
+
+  bool toggleSubject(StudySubject subject) {
+    final names = selectedSubjects.map((s) => s.name).toList();
+    if (names.contains(subject.name)) {
+      names.remove(subject.name);
+    } else {
+      if (names.length >= 6) {
+        error = 'Chọn tối đa 6 môn cho mỗi kế hoạch.';
+        _emit();
+        return false;
+      }
+      names.add(subject.name);
+    }
+    drafts['courses'] = names;
+    error = null;
+    _emit();
+    return true;
+  }
+
+  bool changeSubjectHours(StudySubject subject, int hours) {
+    if (hours < 1 || hours > 168) return false;
+    drafts['courseHours'] = {
+      ...?(drafts['courseHours'] as Map?),
+      subject.id: hours,
+    };
+    _emit();
+    return true;
+  }
+
+  Future<bool> addSubject(
+    String rawName, {
+    String category = 'Tự chọn',
+    Map<String, dynamic>? allocation,
+  }) async {
+    final name = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (name.isEmpty || name.length > 80) {
+      error = 'Tên môn cần từ 1 đến 80 ký tự.';
+      _emit();
+      return false;
+    }
+    if (subjects.any((s) => s.name.toLowerCase() == name.toLowerCase())) {
+      error = 'Môn học này đã có trong danh sách.';
+      _emit();
+      return false;
+    }
+    if (subjects.length >= 50) {
+      error = 'Danh sách tối đa 50 môn học.';
+      _emit();
+      return false;
+    }
+    final subject = StudySubject(
+      id: repository.newId('settings'),
+      name: name,
+      category: category,
+      icon: 'book',
+      color: subjects.length % 7,
+    );
+    final selected = selectedSubjects.map((s) => s.name).toList();
+    if (selected.length < 6) selected.add(name);
+    final next = {
+      ...drafts,
+      'customSubjects': [
+        ...(drafts['customSubjects'] as List? ?? []),
+        subject.toJson(),
+      ],
+      'courses': selected,
+    };
+    final previous = find('settings', 'editor');
+    final ok = await setting('editor', {
+      'values': next,
+      'allocation':
+          allocation ?? previous?.data['allocation'] ?? <String, dynamic>{},
+    });
+    if (ok) {
+      await _awaitEditorRevision((previous?.revision ?? 0) + 1);
+      drafts
+        ..clear()
+        ..addAll(next);
+      _emit();
+    }
+    return ok;
+  }
+
+  // A committed write can finish before its snapshot reaches the UI. Wait for
+  // that snapshot so a second catalog edit uses the latest revision.
+  Future<void> _awaitEditorRevision(int revision) async {
+    if (_disposed || (find('settings', 'editor')?.revision ?? 0) >= revision) {
+      return;
+    }
+    final observed = Completer<void>();
+    void check() {
+      if (!observed.isCompleted &&
+          (find('settings', 'editor')?.revision ?? 0) >= revision) {
+        observed.complete();
+      }
+    }
+
+    addListener(check);
+    try {
+      check();
+      await observed.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {},
+      );
+    } finally {
+      if (!_disposed) removeListener(check);
+    }
   }
 
   List<StudyRecord> items(String kind) =>
@@ -253,6 +399,7 @@ class StudyDataViewModel extends ChangeNotifier {
     records.clear();
     errors.clear();
     recentSearches.clear();
+    drafts.clear();
     super.dispose();
   }
 }

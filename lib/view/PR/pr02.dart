@@ -124,11 +124,11 @@ class _Pr02ScreenState extends State<Pr02Screen> {
           ],
         ),
       ),
-      const T(
-        'Email được quản lý bởi Firebase Authentication. Không lưu mật khẩu trong hồ sơ.',
-        size: 12,
-        color: muted,
-      ),
+      // const T(
+      //   'Email được quản lý bởi Firebase Authentication. Không lưu mật khẩu trong hồ sơ.',
+      //   size: 12,
+      //   color: muted,
+      // ),
       AbsorbPointer(
         absorbing: saving,
         child: KButton(saving ? 'Đang lưu…' : 'Lưu thay đổi', save),
