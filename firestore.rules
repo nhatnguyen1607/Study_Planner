@@ -1,0 +1,183 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owns(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    function optionalText(value, max) {
+      return value == null || (value is string && value.size() <= max);
+    }
+    function validNotifications(n) {
+      return n is map
+        && n.keys().hasAll(['enabled','studyReminders','goalUpdates','deadlineReminders','aiSuggestions','featureUpdates','news'])
+        && n.keys().hasOnly(['enabled','studyReminders','goalUpdates','deadlineReminders','aiSuggestions','featureUpdates','news'])
+        && n.enabled is bool && n.studyReminders is bool && n.goalUpdates is bool
+        && n.deadlineReminders is bool && n.aiSuggestions is bool
+        && n.featureUpdates is bool && n.news is bool;
+    }
+    function validPreferences(p) {
+      return p is map
+        && p.keys().hasAll(['themeMode','accentColor','fontSize','timeFormat','background','language'])
+        && p.keys().hasOnly(['themeMode','accentColor','fontSize','timeFormat','background','language'])
+        && p.themeMode in ['light','dark','system']
+        && p.accentColor in ['green','mint','teal','charcoal']
+        && p.fontSize in ['small','medium','large']
+        && p.timeFormat in ['12h','24h']
+        && p.background in ['botanical','mountain','sunset','blue']
+        && p.language in ['vi','en'];
+    }
+    function validProfile(d, uid) {
+      return d.keys().hasAll(['uid','email','displayName','photoUrl','bio','studyRole','school','major','academicYear','notifications','preferences','createdAt','updatedAt'])
+        && d.keys().hasOnly(['uid','email','displayName','photoUrl','bio','studyRole','school','major','academicYear','notifications','preferences','createdAt','updatedAt'])
+        && d.uid == uid && d.email is string && d.email.size() <= 320
+        && d.displayName is string && d.displayName.size() <= 80
+        && optionalText(d.photoUrl, 2048) && optionalText(d.bio, 120)
+        && optionalText(d.studyRole, 40) && optionalText(d.school, 120)
+        && optionalText(d.major, 120) && optionalText(d.academicYear, 40)
+        && validNotifications(d.notifications) && validPreferences(d.preferences)
+        && d.createdAt is timestamp && d.updatedAt is timestamp;
+    }
+match /user/{uid}/appState/current {
+      allow get: if owns(uid);
+      allow create, update: if owns(uid)
+        && request.resource.data.keys().hasOnly(['schemaVersion','updatedAt','completedTasks','selectedDuration','goalProgress','rating','weeklyHours','subjectHours','idealTimeSlots'])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.completedTasks is list && request.resource.data.completedTasks.size() <= 500
+        && request.resource.data.selectedDuration is string && request.resource.data.selectedDuration.size() <= 80
+        && request.resource.data.goalProgress is int && request.resource.data.goalProgress >= 0 && request.resource.data.goalProgress <= 100
+        && request.resource.data.rating is int && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && request.resource.data.weeklyHours is int && request.resource.data.weeklyHours >= 3 && request.resource.data.weeklyHours <= 168
+        && request.resource.data.subjectHours is list && request.resource.data.subjectHours.size() == 3
+        && request.resource.data.subjectHours[0] is int && request.resource.data.subjectHours[0] >= 1
+        && request.resource.data.subjectHours[1] is int && request.resource.data.subjectHours[1] >= 1
+        && request.resource.data.subjectHours[2] is int && request.resource.data.subjectHours[2] >= 1
+        && request.resource.data.subjectHours[0]+request.resource.data.subjectHours[1]+request.resource.data.subjectHours[2] <= request.resource.data.weeklyHours
+        && request.resource.data.idealTimeSlots is list && request.resource.data.idealTimeSlots.size() >= 1
+        && request.resource.data.idealTimeSlots.hasOnly(['morning','afternoon','evening']);
+    }
+    function envelope(d, uid) {
+      return d.ownerId == uid && d.schemaVersion == 1 && d.revision is int && d.revision >= 1
+        && d.createdAt is timestamp && d.updatedAt == request.time;
+    }
+    function validWrite(uid) {
+      return owns(uid) && envelope(request.resource.data, uid)
+        && ((request.method == 'create' && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time)
+          || (request.method == 'update' && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.ownerId == resource.data.ownerId
+            && request.resource.data.revision == resource.data.revision + 1));
+    }
+    function text(d,key,max) { return d.get(key,'') is string && d.get(key,'').size() <= max; }
+    function title(d) { return text(d,'title',120) && d.title.size() > 0; }
+    function baseKeys() { return ['ownerId','schemaVersion','revision','createdAt','updatedAt','extensions','archived']; }
+    function calendarLocked(uid) {
+      let path = /databases/$(database)/documents/user/$(uid)/settings/calendar;
+      return existsAfter(path) && getAfter(path).data.updatedAt == request.time
+        && ((!exists(path) && getAfter(path).data.revision == 1)
+          || (exists(path) && getAfter(path).data.revision == get(path).data.revision + 1));
+    }
+    match /user/{uid}/plans/{id} {
+      allow read: if owns(uid);
+      allow create, update: if validWrite(uid) && calendarLocked(uid)
+        && request.resource.data.keys().hasOnly(baseKeys().concat(['title','objective','source','status','subjects','startAt','endAt','weeklyHours','subjectHours','weekdays','idealTimeSlots','reminderEnabled']))
+        && title(request.resource.data) && text(request.resource.data,'objective',1000)
+        && request.resource.data.source in ['manual','gemini'] && request.resource.data.status in ['active','completed']
+        && request.resource.data.subjects is list && request.resource.data.subjects.size() >= 1 && request.resource.data.subjects.size() <= 6
+        && request.resource.data.startAt is timestamp && request.resource.data.endAt is timestamp
+        && request.resource.data.endAt >= request.resource.data.startAt
+        && request.resource.data.endAt - request.resource.data.startAt <= duration.value(91,'d')
+        && request.resource.data.weeklyHours is int && request.resource.data.weeklyHours >= 1 && request.resource.data.weeklyHours <= 168;
+      allow delete: if false;
+    }
+    match /user/{uid}/sessions/{id} {
+      allow read: if owns(uid);
+      allow create, update: if validWrite(uid) && calendarLocked(uid)
+        && request.resource.data.keys().hasOnly(baseKeys().concat(['planId','title','subject','startAt','endAt','status','actualMinutes','rating','notes','location','materials','checklist','completedItems','completedAt']))
+        && title(request.resource.data) && text(request.resource.data,'subject',80)
+        && text(request.resource.data,'notes',2000) && text(request.resource.data,'location',200) && text(request.resource.data,'materials',2000)
+        && request.resource.data.planId is string
+        && (request.method == 'create' || request.resource.data.planId == resource.data.planId)
+        && existsAfter(/databases/$(database)/documents/user/$(uid)/plans/$(request.resource.data.planId))
+        && getAfter(/databases/$(database)/documents/user/$(uid)/plans/$(request.resource.data.planId)).data.archived == false
+        && request.resource.data.startAt is timestamp && request.resource.data.endAt is timestamp
+        && request.resource.data.startAt >= getAfter(/databases/$(database)/documents/user/$(uid)/plans/$(request.resource.data.planId)).data.startAt
+        && request.resource.data.startAt <= getAfter(/databases/$(database)/documents/user/$(uid)/plans/$(request.resource.data.planId)).data.endAt + duration.value(1,'d')
+        && request.resource.data.endAt > request.resource.data.startAt
+        && request.resource.data.endAt - request.resource.data.startAt <= duration.value(240,'m')
+        && request.resource.data.status in ['scheduled','completed']
+        && request.resource.data.actualMinutes is int && request.resource.data.actualMinutes >= 0 && request.resource.data.actualMinutes <= 1440
+        && request.resource.data.rating is int && request.resource.data.rating >= 0 && request.resource.data.rating <= 5
+        && (request.resource.data.status != 'completed' || (request.resource.data.completedAt is timestamp && request.resource.data.completedAt <= request.time && request.resource.data.actualMinutes > 0));
+      allow delete: if false;
+    }
+    match /user/{uid}/goals/{id} {
+      allow read: if owns(uid);
+      allow create, update: if validWrite(uid)
+        && request.resource.data.keys().hasOnly(baseKeys().concat(['title','description','category','unit','baseline','target','current','deadline','milestones','notes','rating']))
+        && title(request.resource.data) && text(request.resource.data,'description',1000)
+        && text(request.resource.data,'category',80) && text(request.resource.data,'unit',80) && text(request.resource.data,'notes',2000)
+        && request.resource.data.baseline is number && request.resource.data.baseline >= 0
+        && request.resource.data.target is number && request.resource.data.target > request.resource.data.baseline
+        && request.resource.data.current is number && request.resource.data.current >= request.resource.data.baseline && request.resource.data.current <= request.resource.data.target
+        && request.resource.data.deadline is timestamp
+        && request.resource.data.milestones is list && request.resource.data.milestones.size() <= 30
+        && request.resource.data.rating is int && request.resource.data.rating >= 0 && request.resource.data.rating <= 5;
+      allow delete: if false;
+    }
+    match /user/{uid}/tasks/{id} {
+      allow read: if owns(uid);
+      allow create, update: if validWrite(uid)
+        && request.resource.data.keys().hasOnly(baseKeys().concat(['title','notes','completed','completedAt']))
+        && title(request.resource.data) && text(request.resource.data,'notes',2000)
+        && request.resource.data.completed is bool && request.resource.data.archived is bool
+        && (request.resource.data.get('completedAt',null) == null || request.resource.data.completedAt is timestamp);
+      allow delete: if false;
+    }
+    match /user/{uid}/settings/{id} {
+      allow read: if owns(uid);
+      allow create, update: if validWrite(uid)
+        && ((id == 'calendar' && request.resource.data.keys().hasOnly(baseKeys()))
+          || (id == 'search' && request.resource.data.keys().hasOnly(baseKeys().concat(['recent'])) && request.resource.data.recent is list && request.resource.data.recent.size() <= 10)
+          || (id == 'editor' && request.resource.data.keys().hasOnly(baseKeys().concat(['values','allocation'])) && request.resource.data.values is map && request.resource.data.values.size() <= 40 && request.resource.data.allocation is map)
+          || (id == 'preferences' && request.resource.data.keys().hasOnly(baseKeys().concat(['themeMode','fontSize'])) && request.resource.data.get('themeMode','system') in ['light','dark','system'] && request.resource.data.get('fontSize','medium') in ['small','medium','large'])
+          || (id == 'notifications' && request.resource.data.keys().hasOnly(baseKeys().concat(['enabled','studyReminders','goalUpdates','deadlineReminders','aiSuggestions'])) && request.resource.data.get('enabled',true) is bool && request.resource.data.get('studyReminders',true) is bool && request.resource.data.get('goalUpdates',true) is bool && request.resource.data.get('deadlineReminders',true) is bool && request.resource.data.get('aiSuggestions',true) is bool));
+      allow delete: if false;
+    }
+    match /user/{uid}/notifications/{id} {
+      allow read: if owns(uid);
+      allow create, delete: if false;
+      allow update: if owns(uid) && envelope(request.resource.data,uid)
+        && request.resource.data.revision == resource.data.revision + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','revision','updatedAt'])
+        && request.resource.data.read is bool;
+    }
+    match /user/{uid}/activities/{id} {
+      allow read: if owns(uid);
+      allow write: if false;
+    }
+
+    match /user/{uid}/aiDrafts/{draftId} {
+      allow get: if owns(uid);
+      allow write: if false;
+    }
+    match /user/{uid}/aiUsage/{day} {
+      allow read, write: if false;
+    }
+    match /user/{uid} {
+      allow get: if owns(uid);
+      allow list: if false;
+      allow create: if owns(uid) && validProfile(request.resource.data, uid)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if owns(uid) && validProfile(request.resource.data, uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['displayName','photoUrl','bio','studyRole','school','major','academicYear','notifications','preferences','updatedAt']);
+      allow delete: if false;
+    }
+  }
+}
