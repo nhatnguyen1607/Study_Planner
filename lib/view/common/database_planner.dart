@@ -131,12 +131,10 @@ extension _PlannerFrames on _DatabaseFrameState {
       'reminderEnabled': draft['planReminder'] ?? true,
       'archived': false,
     });
-    if (await commit(
-      data.saveCalendar(plan: plan, sessions: sessions),
-      D.pl12,
-    )) {
+    if (await data.saveCalendar(plan: plan, sessions: sessions) && mounted) {
       data.selectedPlanId = id;
       draft.remove('planDraftId');
+      vm.navigate(D.pl12);
     }
   }
 

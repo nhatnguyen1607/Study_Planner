@@ -63,7 +63,7 @@ class StudyDatabase {
     if ((current?.revision ?? 0) != (expected ?? 0)) {
       throw const DataFailure(
         'conflict',
-        'Dữ liệu đã thay đổi trên thiết bị khác. Hãy tải lại rồi thử lại.',
+        'Dữ liệu trên máy chủ đã có phiên bản mới hơn. Hãy tải lại rồi thử lại.',
       );
     }
   }

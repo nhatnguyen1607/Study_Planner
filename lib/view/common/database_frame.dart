@@ -42,7 +42,7 @@ class _DatabaseFrameState extends State<DatabaseFrame> {
         (screen.index >= D.go02.index && screen.index <= D.go07.index)) {
       data
           .setting('editor', {
-            'values': Map<String, dynamic>.of(draft),
+            'values': Map<String, dynamic>.of(draft)..remove('planDraftId'),
             'allocation': allocation,
           })
           .then((ok) {
@@ -54,12 +54,6 @@ class _DatabaseFrameState extends State<DatabaseFrame> {
   }
 
   void changed(VoidCallback action) => setState(action);
-  Future<bool> commit(Future<bool> future, [D? next]) async {
-    final ok = await future;
-    if (ok && mounted && next != null) go(next);
-    return ok;
-  }
-
   Widget action(String label, VoidCallback tap, {IconData? icon}) =>
       FigmaButton(
         label,
@@ -161,7 +155,9 @@ class _DatabaseFrameState extends State<DatabaseFrame> {
     listenable: data,
     builder: (context, _) {
       final footer = fixedFooter(), children = List<Widget>.of(content);
-      if (footer != null && children.isNotEmpty && children.last is FigmaButton) {
+      if (footer != null &&
+          children.isNotEmpty &&
+          children.last is FigmaButton) {
         children.removeLast();
       }
       return PopScope(

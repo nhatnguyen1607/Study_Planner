@@ -36,6 +36,8 @@ class StudyDataViewModel extends ChangeNotifier {
                     drafts.addAll(
                       Map<String, dynamic>.from(editor!.data['values'] as Map),
                     );
+                    // Transaction IDs are kept only in memory for retries.
+                    drafts.remove('planDraftId');
                     if (drafts['courses'] is List) {
                       drafts['courses'] = (drafts['courses'] as List)
                           .cast<String>();
@@ -85,6 +87,7 @@ class StudyDataViewModel extends ChangeNotifier {
   final Map<String, String> errors = {};
   final Set<String> _loaded = {};
   final List<StreamSubscription<List<StudyRecord>>> _subscriptions = [];
+  final Set<Completer<void>> _editorWaiters = {};
   Completer<void>? _pending;
   Timer? _loadTimer;
   bool _disposed = false, busy = false;
@@ -219,7 +222,6 @@ class StudyDataViewModel extends ChangeNotifier {
           allocation ?? previous?.data['allocation'] ?? <String, dynamic>{},
     });
     if (ok) {
-      await _awaitEditorRevision((previous?.revision ?? 0) + 1);
       drafts
         ..clear()
         ..addAll(next);
@@ -228,8 +230,8 @@ class StudyDataViewModel extends ChangeNotifier {
     return ok;
   }
 
-  // A committed write can finish before its snapshot reaches the UI. Wait for
-  // that snapshot so a second catalog edit uses the latest revision.
+  // Keep the save busy until the committed snapshot reaches this view model.
+  // The next wizard step must use the revision we just wrote.
   Future<void> _awaitEditorRevision(int revision) async {
     if (_disposed || (find('settings', 'editor')?.revision ?? 0) >= revision) {
       return;
@@ -242,14 +244,19 @@ class StudyDataViewModel extends ChangeNotifier {
       }
     }
 
+    _editorWaiters.add(observed);
     addListener(check);
     try {
       check();
       await observed.future.timeout(
         const Duration(seconds: 10),
-        onTimeout: () {},
+        onTimeout: () => throw const DataFailure(
+          'sync-pending',
+          'Bản nháp đã lưu nhưng chưa đồng bộ xong. Chờ kết nối rồi thử lại.',
+        ),
       );
     } finally {
+      _editorWaiters.remove(observed);
       if (!_disposed) removeListener(check);
     }
   }
@@ -377,7 +384,18 @@ class StudyDataViewModel extends ChangeNotifier {
   }
 
   Future<bool> setting(String id, Map<String, dynamic> values) =>
-      save('settings', id, values, existing: find('settings', id));
+      run('save-settings', () async {
+        final previous = find('settings', id);
+        await repository.save(
+          'settings',
+          id,
+          values,
+          expected: previous?.revision,
+        );
+        if (id == 'editor') {
+          await _awaitEditorRevision((previous?.revision ?? 0) + 1);
+        }
+      });
   Future<bool> search(String value) async {
     query = value.trim();
     if (query.isEmpty) return false;
@@ -392,6 +410,10 @@ class StudyDataViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    for (final waiter in _editorWaiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+    _editorWaiters.clear();
     _loadTimer?.cancel();
     for (final sub in _subscriptions) {
       unawaited(sub.cancel());
